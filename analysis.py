@@ -1108,63 +1108,57 @@ def generate_summary_dashboard_no_revenue(results, output_dir, year: int = None)
 
 def plot_catch_and_efficiency(catch_kg_sum, catch_per_l, years):
     """
-    漁獲量と燃油効率を複合グラフとしてプロット
+    漁獲量と燃油効率を複合グラフとしてプロット（位置・はみ出し完全対応）
     """
     fig, ax1 = plt.subplots(figsize=(12, 6))
 
-    x = years
-    try:
-        if len(x) > 0 and (isinstance(x[0], pd.Timestamp) or isinstance(x[0], _date) or (isinstance(x[0], str) and len(x[0]) in (7, 10) and x[0][4] == '-')):
-            x = pd.to_datetime(x)
-            is_monthly = True
-        else:
-            is_monthly = False
-    except Exception:
-        is_monthly = False
+    # ---- 年月処理 ----
+    x = pd.to_datetime(years)
+    is_time = pd.api.types.is_datetime64_any_dtype(x)
 
-    # 漁獲量（棒グラフ）
-    if is_monthly:
-        xdt = pd.to_datetime(x)
-        xnum = mdates.date2num(xdt)
-        ax1.bar(xnum, catch_kg_sum, width=25, color='skyblue', alpha=0.55, label='漁獲量 (kg)', align='center')
-    else:
-        ax1.bar(x, catch_kg_sum, color='skyblue', alpha=0.7, label='漁獲量 (kg)')
+    # ---- 棒グラフ（漁獲量）----
+    ax1.bar(
+        x, catch_kg_sum,
+        color='skyblue', alpha=0.6,
+        label='漁獲量 (kg)',
+        align='edge',  # 月初基準
+        width=20
+    )
 
-    # ✅ 横軸ラベルを「年月」に変更
     ax1.set_xlabel('年月')
-
-    # ✅ 縦軸の数値にカンマを入れる
-    import matplotlib.ticker as mticker
-    ax1.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{x:,.0f}"))
-
     ax1.set_ylabel('漁獲量 (kg)', color='blue')
     ax1.tick_params(axis='y', labelcolor='blue')
+    ax1.tick_params(axis='x')
+    ax1.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{x:,.0f}"))
 
-    if is_monthly:
-        ax1.xaxis.set_major_locator(mdates.MonthLocator(interval=1))
+    # ---- 横軸（月単位フォーマット）----
+    if is_time:
+        locator = mdates.MonthLocator(interval=1)
+        ax1.xaxis.set_major_locator(locator)
         ax1.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
-        plt.setp(ax1.get_xticklabels(), rotation=270, ha='left')
 
-    # 燃油効率（折れ線）
+        # ✅ はみ出し防止：右端に余白を追加
+        delta = pd.Timedelta(days=30)
+        ax1.set_xlim(x.min(), x.max() + delta)
+
+    plt.setp(ax1.get_xticklabels(), rotation=45, ha='right')
+    plt.subplots_adjust(bottom=0.22)
+
+    # ---- 折れ線（燃油効率）----
     ax2 = ax1.twinx()
-    if is_monthly:
-        ax2.plot(pd.to_datetime(x), catch_per_l, color='orange', marker='o', label='燃油効率 (kg/l)')
-    else:
-        ax2.plot(x, catch_per_l, color='orange', marker='o', label='燃油効率 (kg/l)')
-
+    ax2.plot(x, catch_per_l, color='orange', marker='o', label='燃油効率 (kg/l)')
     ax2.set_ylabel('燃油効率 (kg/l)', color='orange')
     ax2.tick_params(axis='y', labelcolor='orange')
-
-    # ✅ 燃油効率軸にもカンマを適用（小数は1桁まで）
     ax2.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{x:,.1f}"))
 
+    # ---- タイトル・凡例・保存 ----
     fig.suptitle('漁獲量と燃油効率の推移', fontsize=16)
     ax1.legend(loc='upper left')
     ax2.legend(loc='upper right')
 
     out_path = Path('analysis_results/graphs/catch_and_efficiency.png')
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    plt.tight_layout()
+    plt.tight_layout(rect=[0, 0, 1, 0.96])
     plt.savefig(out_path, dpi=300, bbox_inches='tight')
     plt.close(fig)
 
