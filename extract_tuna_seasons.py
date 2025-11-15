@@ -51,7 +51,7 @@ def resolve_column(
     required: bool = True,
     column_type: str,
 ) -> str | None:
-    """Return the actual column name that matches one of the aliases."""
+    """候補リストのいずれかに該当する実際のカラム名を返す。"""
 
     normalized = {normalize_header(col): col for col in columns}
     for candidate in candidates:
