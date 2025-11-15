@@ -1,7 +1,6 @@
 *2023.csv
 *2024.csv
 *converted.csv
-out_trips/2023/*.csv
-out_trips/2024/*.csv
-
+/out_trips/2023/*.csv
+/out_trips/2024/*.csv
 /out_trips/**/*.csv
