@@ -34,6 +34,38 @@ def normalize_name(value: str | float) -> str:
     return ""
 
 
+def normalize_header(value: str) -> str:
+    return (
+        str(value)
+        .strip()
+        .lower()
+        .replace("　", "")
+        .replace(" ", "")
+    )
+
+
+def resolve_column(
+    columns: Iterable[str],
+    candidates: Iterable[str],
+    *,
+    required: bool = True,
+    column_type: str,
+) -> str | None:
+    """候補リストのいずれかに該当する実際のカラム名を返す。"""
+
+    normalized = {normalize_header(col): col for col in columns}
+    for candidate in candidates:
+        key = normalize_header(candidate)
+        if key in normalized:
+            return normalized[key]
+    if required:
+        raise ValueError(
+            f"マグログデータに必要なカラム({column_type})が見つかりません。"
+            f" 利用可能なカラム: {list(columns)}"
+        )
+    return None
+
+
 def determine_op_date(ts: pd.Timestamp) -> pd.Timestamp:
     if pd.isna(ts):
         return pd.NaT
@@ -53,15 +85,45 @@ def prepare_maglog(maglog_path: Path, vessel_lookup_path: Path) -> pd.DataFrame:
         raise FileNotFoundError(f"船名対応表が見つかりません: {vessel_lookup_path}")
 
     mag = pd.read_csv(maglog_path)
-    required_cols = {"name", "total", "time1", "time2"}
-    missing = required_cols - set(mag.columns)
-    if missing:
-        raise ValueError(f"マグログデータに必要なカラムが不足しています: {missing}")
 
-    mag["ship_name"] = mag["name"].map(normalize_name)
-    mag["time1_dt"] = pd.to_datetime(mag["time1"], errors="coerce")
+    name_col = resolve_column(
+        mag.columns,
+        ["name", "船名", "vessel", "vessel_name", "ship", "船舶名"],
+        column_type="name",
+    )
+    total_col = resolve_column(
+        mag.columns,
+        ["total", "重量", "漁獲量", "tuna", "tuna_kg", "総尾数", "総重量"],
+        column_type="total",
+    )
+    time1_col = resolve_column(
+        mag.columns,
+        ["time1", "date", "time", "漁獲日", "登録日時", "time_1"],
+        column_type="time1",
+    )
+    time2_col = resolve_column(
+        mag.columns,
+        ["time2", "time_2", "更新時刻", "登録時刻", "time2nd"],
+        column_type="time2",
+        required=False,
+    )
+
+    mag = mag.rename(
+        columns={
+            name_col: "ship_name_raw",
+            total_col: "total_raw",
+            time1_col: "time1_raw",
+            **({time2_col: "time2_raw"} if time2_col else {}),
+        }
+    )
+
+    mag["ship_name"] = mag["ship_name_raw"].map(normalize_name)
+    mag["time1_dt"] = pd.to_datetime(mag["time1_raw"], errors="coerce")
     mag["date"] = mag["time1_dt"].dt.normalize()
-    mag["time2_dt"] = pd.to_datetime(mag["time2"], errors="coerce")
+    if time2_col:
+        mag["time2_dt"] = pd.to_datetime(mag["time2_raw"], errors="coerce")
+    else:
+        mag["time2_dt"] = mag["time1_dt"]
     mag["time2_sort"] = mag["time2_dt"].fillna(pd.Timestamp("1900-01-01"))
 
     mag = (
@@ -71,7 +133,7 @@ def prepare_maglog(maglog_path: Path, vessel_lookup_path: Path) -> pd.DataFrame:
         .tail(1)
     )
 
-    mag["tuna_kg"] = pd.to_numeric(mag["total"], errors="coerce")
+    mag["tuna_kg"] = pd.to_numeric(mag["total_raw"], errors="coerce")
 
     lookup = pd.read_csv(vessel_lookup_path)
     if "vessel_id" not in lookup.columns or "vessel_name" not in lookup.columns:
