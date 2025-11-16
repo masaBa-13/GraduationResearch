@@ -10,7 +10,7 @@ import pandas as pd
 # パラメータ
 # ------------------------------------------------------------
 MIN_GAP_SECONDS = 3600          # 1時間 (秒)
-MIN_OPERATION_DISTANCE_KM =5  # 操業とみなす最小移動距離
+MIN_OPERATION_DISTANCE_KM = 10  # 操業とみなす最小移動距離
 
 
 # ------------------------------------------------------------
@@ -136,9 +136,14 @@ def prepare_maglog(maglog_path: Path, vessel_lookup_path: Path) -> pd.DataFrame:
     mag["tuna_kg"] = pd.to_numeric(mag["total_raw"], errors="coerce")
 
     lookup = pd.read_csv(vessel_lookup_path)
-    if "vessel_id" not in lookup.columns or "vessel_name" not in lookup.columns:
-        raise ValueError("船名対応表に vessel_id, vessel_name が必要です")
-    lookup["ship_name"] = lookup["vessel_name"].map(normalize_name)
+    required_lookup_cols = {"vessel_id", "short_name"}
+    missing_lookup = required_lookup_cols - set(lookup.columns)
+    if missing_lookup:
+        raise ValueError(
+            "船名対応表に必要なカラムが不足しています: "
+            + ", ".join(sorted(missing_lookup))
+        )
+    lookup["ship_name"] = lookup["short_name"].map(normalize_name)
     mag = mag.merge(lookup[["vessel_id", "ship_name"]], on="ship_name", how="left", suffixes=("", "_lookup"))
 
     return mag[["ship_name", "vessel_id", "date", "tuna_kg"]]
