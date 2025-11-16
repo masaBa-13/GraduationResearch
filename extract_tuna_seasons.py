@@ -219,11 +219,11 @@ def process_year(
     year: int,
     root: Path,
     maglog: pd.DataFrame,
-) -> None:
+) -> dict | None:
     gnss_path = root / str(year) / "converted.csv"
     if not gnss_path.exists():
         print(f"[WARN] {gnss_path} が見つからないためスキップします")
-        return
+        return None
 
     gnss = read_gnss(gnss_path)
     gnss_original_cols = [c for c in gnss.columns]
@@ -232,7 +232,7 @@ def process_year(
 
     if op_summary.empty:
         print(f"[WARN] {year} の操業が見つかりませんでした")
-        return
+        return None
 
     op_summary = op_summary.merge(
         maglog[["vessel_id", "date", "tuna_kg"]],
@@ -260,6 +260,15 @@ def process_year(
     valid_ops_to_save.to_csv(ops_out_path, index=False, encoding="utf-8-sig")
     print(f"[INFO] {ops_out_path.name} を出力しました ({len(valid_ops_to_save)} 操業)")
 
+    operation_days = int(pd.to_datetime(valid_ops["op_date"]).dt.normalize().nunique())
+    print(f"[INFO] {year} 年: 抽出した操業日数 = {operation_days} 日")
+
+    return {
+        "year": year,
+        "operation_days": operation_days,
+        "operation_count": int(len(valid_ops_to_save)),
+    }
+
 
 # ------------------------------------------------------------
 # メイン
@@ -270,8 +279,18 @@ def main(years: Iterable[int] = (2024, 2025)) -> None:
     lookup_path = root / "船名対応表.csv"
     maglog = prepare_maglog(maglog_path, lookup_path)
 
+    stats: list[dict] = []
     for year in years:
-        process_year(year, root, maglog)
+        result = process_year(year, root, maglog)
+        if result is not None:
+            stats.append(result)
+
+    if stats:
+        total_days = sum(item["operation_days"] for item in stats)
+        total_ops = sum(item["operation_count"] for item in stats)
+        print(
+            f"[INFO] 合計: 抽出した操業日数 = {total_days} 日 / 操業件数 = {total_ops} 件"
+        )
 
 
 if __name__ == "__main__":
