@@ -124,6 +124,7 @@ def prepare_maglog(maglog_path: Path, vessel_lookup_path: Path) -> pd.DataFrame:
         mag["time2_dt"] = pd.to_datetime(mag["time2_raw"], errors="coerce")
     else:
         mag["time2_dt"] = mag["time1_dt"]
+    mag["time2_date"] = mag["time2_dt"].dt.normalize()
     mag["time2_sort"] = mag["time2_dt"].fillna(pd.Timestamp("1900-01-01"))
 
     mag = (
@@ -146,7 +147,9 @@ def prepare_maglog(maglog_path: Path, vessel_lookup_path: Path) -> pd.DataFrame:
     lookup["ship_name"] = lookup["short_name"].map(normalize_name)
     mag = mag.merge(lookup[["vessel_id", "ship_name"]], on="ship_name", how="left", suffixes=("", "_lookup"))
 
-    return mag[["ship_name", "vessel_id", "date", "tuna_kg"]]
+    mag = mag.dropna(subset=["time2_date"])
+
+    return mag[["ship_name", "vessel_id", "time2_date", "tuna_kg"]]
 
 
 # ------------------------------------------------------------
@@ -163,6 +166,7 @@ def read_gnss(gnss_path: Path) -> pd.DataFrame:
         raise ValueError(f"converted.csv に必要なカラムがありません: {missing}")
 
     df["ts"] = pd.to_datetime(df["sdate"].astype(str) + " " + df["stime"].astype(str), errors="coerce")
+    df["sdate_date"] = pd.to_datetime(df["sdate"], errors="coerce").dt.normalize()
     df["vessel_id"] = df["vessel"].astype(str)
     df["lat_dd"] = pd.to_numeric(df["lat_dd"], errors="coerce")
     df["long_dd"] = pd.to_numeric(df["long_dd"], errors="coerce")
@@ -226,7 +230,7 @@ def process_year(
         return None
 
     gnss = read_gnss(gnss_path)
-    gnss_original_cols = [c for c in gnss.columns]
+    gnss_original_cols = [c for c in gnss.columns if c != "sdate_date"]
 
     gnss, op_summary = split_operations(gnss)
 
@@ -235,16 +239,21 @@ def process_year(
         return None
 
     op_summary = op_summary.merge(
-        maglog[["vessel_id", "date", "tuna_kg"]],
+        maglog[["vessel_id", "time2_date", "tuna_kg"]],
         left_on=["vessel_id", "op_date"],
-        right_on=["vessel_id", "date"],
-        how="left",
+        right_on=["vessel_id", "time2_date"],
+        how="inner",
     )
-    op_summary = op_summary.drop(columns=["date"])
 
     valid_ops = op_summary[op_summary["valid_operation"]].copy()
-    merge_cols = ["vessel_id", "op_seq", "op_id", "op_date", "tuna_kg"]
-    gnss = gnss.merge(valid_ops[merge_cols], on=["vessel_id", "op_seq"], how="inner")
+    merge_cols = ["vessel_id", "op_seq", "op_id", "op_date", "time2_date", "tuna_kg"]
+    gnss = gnss.merge(
+        valid_ops[merge_cols],
+        left_on=["vessel_id", "op_seq", "sdate_date"],
+        right_on=["vessel_id", "op_seq", "time2_date"],
+        how="inner",
+    )
+    gnss = gnss.drop(columns=["time2_date"])
 
     output_cols = gnss_original_cols + ["ts", "vessel_id", "op_id", "op_date", "tuna_kg"]
     output = gnss[output_cols].copy()
